@@ -215,8 +215,9 @@ async fn process_feed(
         .url
         .parse()
         .wrap_err_with(|| format!("unable to parse {} as a URL", config.url))?;
-    let req = client.get(url.clone());
-    let req = maybe_add_cache_headers(req, cached_headers);
+    let mut req = client.get(url.clone());
+    req = add_headers(req, cached_headers, &channel_config.user_agent);
+
     let resp = req
         .send()
         .await
@@ -334,11 +335,16 @@ fn rewrite_urls(doc: &NodeRef, base_url: &url::ParseOptions) -> eyre::Result<()>
     Ok(())
 }
 
-fn maybe_add_cache_headers(
+fn add_headers(
     mut req: RequestBuilder,
     cached_headers: &Option<HeaderMap>,
+    user_agent: &Option<String>,
 ) -> RequestBuilder {
-    use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
+    use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, USER_AGENT};
+
+    if let Some(ua) = user_agent {
+        req = req.header(USER_AGENT, ua);
+    }
 
     let headers = match cached_headers {
         Some(headers) => headers,
