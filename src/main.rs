@@ -97,9 +97,24 @@ async fn try_main() -> eyre::Result<bool> {
     // Set up the HTTP client
     let connect_timeout = Duration::from_secs(10);
     let timeout = Duration::from_secs(30);
-    let client = Client::builder()
+    let mut client_builder = Client::builder()
         .connect_timeout(connect_timeout)
-        .timeout(timeout)
+        .timeout(timeout);
+    // Add proxy if provided
+    if let Some(proxy) = config.rsspls.proxy {
+        let proxy_protocol = proxy.split(":").next();
+        let r = match proxy_protocol {
+            Some("http") => Ok(client_builder.proxy(reqwest::Proxy::http(proxy)?)),
+            Some("https") => Ok(client_builder.proxy(reqwest::Proxy::https(proxy)?)),
+            Some("socks5") | Some("socksh") => {
+                Ok(client_builder.proxy(reqwest::Proxy::all(proxy)?))
+            }
+            _ => Err(eyre!("Invalid Proxy protocol.")),
+        };
+        client_builder = r?;
+    }
+
+    let client = client_builder
         .build()
         .wrap_err("unable to build HTTP client")?;
 
