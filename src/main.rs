@@ -25,7 +25,7 @@ use kuchiki::{ElementData, NodeDataRef, NodeRef};
 use log::{debug, error, info, warn};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, RequestBuilder, StatusCode, Url};
-use rss::{Channel, ChannelBuilder, Enclosure, GuidBuilder, ItemBuilder};
+use rss::{Channel, ChannelBuilder, Enclosure, GuidBuilder, Item, ItemBuilder};
 use serde::{Deserialize, Serialize};
 use simple_eyre::eyre;
 use time::format_description::well_known::Rfc2822;
@@ -290,70 +290,10 @@ async fn process_feed(
         .select(&config.item)
         .map_err(|()| eyre!("invalid selector for item: {}", config.item))?
     {
-        let title = item
-            .as_node()
-            .select_first(&config.heading)
-            .map_err(|()| eyre!("invalid selector for heading: {}", config.heading))?;
-        let link = item
-            .as_node()
-            .select_first(link_selector)
-            .map_err(|()| eyre!("invalid selector for link: {}", link_selector))?;
-        // TODO: Need to make links absolute (probably ones in content too)
-        let attrs = link.attributes.borrow();
-        let link_url = attrs
-            .get("href")
-            .ok_or_else(|| eyre!("element selected as link has no 'href' attribute"))?;
-        let title_text = title.text_contents();
-        let description = extract_description(config, &item, &title_text)?;
-        let date = extract_pub_date(config, &item)?;
-        let guid = GuidBuilder::default()
-            .value(link_url)
-            .permalink(false)
-            .build();
-
-        let mut rss_item_builder = ItemBuilder::default();
-        rss_item_builder
-            .title(title_text)
-            .link(base_url.parse(link_url).ok().map(|u| u.to_string()))
-            .guid(Some(guid))
-            .pub_date(date.map(|date| date.format(&Rfc2822).unwrap()))
-            .description(description);
-
-        // Media enclosure
-        if let Some(img_selector) = &config.media {
-            let media = item
-                .as_node()
-                .select_first(&img_selector)
-                .map_err(|()| eyre!("invalid selector for media: {}", img_selector))?;
-
-            let media_attrs = media.attributes.borrow();
-            let media_url = media_attrs
-                .get("src")
-                .ok_or_else(|| eyre!("element selected as image has no 'src' attribute"))?;
-
-            let mut enclosure = Enclosure::default();
-            enclosure.set_url(media_url);
-
-            // Guessing the MIME type from the url as we don't have the full media
-            let parsed_url =
-                Url::parse(media_url).map_err(|e| eyre!("Media enclosure url invalid: {e}"))?;
-            let media_filename = parsed_url
-                .path_segments()
-                .ok_or_else(|| eyre!("Media enclosure url invalid"))?
-                .last()
-                .map(|s| s.to_string())
-                .ok_or_else(|| eyre!("Media enclosure url invalid"))?;
-            let mime_guess = mime_guess::from_path(media_filename).first_or_octet_stream();
-            enclosure.set_mime_type(mime_guess.to_string());
-
-            // Leaving the length undetermined
-            enclosure.set_length("0".to_string());
-
-            rss_item_builder.enclosure(Some(enclosure));
+        match parse_item(config, item, link_selector, &base_url) {
+            Ok(rss_item) => items.push(rss_item),
+            Err(e) => eprintln!("Error parsing RSS item: {e}"),
         }
-
-        let rss_item = rss_item_builder.build();
-        items.push(rss_item);
     }
 
     let channel = ChannelBuilder::default()
@@ -367,6 +307,77 @@ async fn process_feed(
         channel,
         headers: serialised_headers,
     })
+}
+
+fn parse_item(
+    config: &FeedConfig,
+    item: NodeDataRef<ElementData>,
+    link_selector: &str,
+    base_url: &url::ParseOptions,
+) -> eyre::Result<Item> {
+    let title = item
+        .as_node()
+        .select_first(&config.heading)
+        .map_err(|()| eyre!("invalid selector for heading: {}", config.heading))?;
+    let link = item
+        .as_node()
+        .select_first(link_selector)
+        .map_err(|()| eyre!("invalid selector for link: {}", link_selector))?;
+    // TODO: Need to make links absolute (probably ones in content too)
+    let attrs = link.attributes.borrow();
+    let link_url = attrs
+        .get("href")
+        .ok_or_else(|| eyre!("element selected as link has no 'href' attribute"))?;
+    let title_text = title.text_contents();
+    let description = extract_description(config, &item, &title_text)?;
+    let date = extract_pub_date(config, &item)?;
+    let guid = GuidBuilder::default()
+        .value(link_url)
+        .permalink(false)
+        .build();
+
+    let mut rss_item_builder = ItemBuilder::default();
+    rss_item_builder
+        .title(title_text)
+        .link(base_url.parse(link_url).ok().map(|u| u.to_string()))
+        .guid(Some(guid))
+        .pub_date(date.map(|date| date.format(&Rfc2822).unwrap()))
+        .description(description);
+
+    // Media enclosure
+    if let Some(img_selector) = &config.media {
+        let media = item
+            .as_node()
+            .select_first(&img_selector)
+            .map_err(|()| eyre!("invalid selector for media: {}", img_selector))?;
+
+        let media_attrs = media.attributes.borrow();
+        let media_url = media_attrs
+            .get("src")
+            .ok_or_else(|| eyre!("element selected as image has no 'src' attribute"))?;
+
+        let mut enclosure = Enclosure::default();
+        enclosure.set_url(media_url);
+
+        // Guessing the MIME type from the url as we don't have the full media
+        let parsed_url =
+            Url::parse(media_url).map_err(|e| eyre!("Media enclosure url invalid: {e}"))?;
+        let media_filename = parsed_url
+            .path_segments()
+            .ok_or_else(|| eyre!("Media enclosure url invalid"))?
+            .last()
+            .map(|s| s.to_string())
+            .ok_or_else(|| eyre!("Media enclosure url invalid"))?;
+        let mime_guess = mime_guess::from_path(media_filename).first_or_octet_stream();
+        enclosure.set_mime_type(mime_guess.to_string());
+
+        // Leaving the length undetermined
+        enclosure.set_length("0".to_string());
+
+        rss_item_builder.enclosure(Some(enclosure));
+    }
+
+    Ok(rss_item_builder.build())
 }
 
 fn rewrite_urls(doc: &NodeRef, base_url: &url::ParseOptions) -> eyre::Result<()> {
