@@ -13,6 +13,7 @@ pub struct Cli {
     pub config_path: Option<PathBuf>,
     pub output_path: Option<PathBuf>,
     pub param_kv: Option<(String, String)>,
+    pub single_feed: Option<String>,
 }
 
 pub fn parse_args() -> eyre::Result<Option<Cli>> {
@@ -40,6 +41,7 @@ pub fn parse_args() -> eyre::Result<Option<Cli>> {
         config_path: pargs.opt_value_from_os_str(["-c", "--config"], pathbuf)?,
         output_path: pargs.opt_value_from_os_str(["-o", "--output"], pathbuf)?,
         param_kv,
+        single_feed: pargs.opt_value_from_str(["-s", "--single-feed"])?,
     }))
 }
 

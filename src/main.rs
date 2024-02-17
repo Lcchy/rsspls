@@ -123,8 +123,19 @@ async fn try_main() -> eyre::Result<bool> {
     let dirs = dirs::new()?;
     let dirs = Arc::new(Mutex::new(dirs));
 
+    // Filter feeds to select `single_feed` if specified
+    let feeds_iter = if let Some(single_feed) = cli.single_feed {
+        config
+            .feed
+            .into_iter()
+            .filter(|f| f.title == single_feed)
+            .collect()
+    } else {
+        config.feed
+    };
+
     // Spawn the tasks
-    let futures = config.feed.into_iter().map(|feed| {
+    let futures = feeds_iter.into_iter().map(|feed| {
         let client = client.clone(); // Client uses Arc internally
         let output_dir = output_dir.clone();
         let dirs = Arc::clone(&dirs);
