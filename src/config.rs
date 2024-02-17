@@ -38,6 +38,7 @@ pub struct FeedConfig {
     pub url: String,
     pub item: String,
     pub heading: String,
+    pub heading_max_length: Option<u16>,
     pub link: Option<String>,
     pub summary: Option<String>,
     #[serde(default, deserialize_with = "opt_string_or_struct")]

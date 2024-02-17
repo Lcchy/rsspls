@@ -328,7 +328,7 @@ fn parse_item(
     let link_url = attrs
         .get("href")
         .ok_or_else(|| eyre!("element selected as link has no 'href' attribute"))?;
-    let title_text = title.text_contents();
+    let mut title_text = title.text_contents();
     let description = extract_description(config, &item, &title_text)?;
     let date = extract_pub_date(config, &item)?;
     let guid = GuidBuilder::default()
@@ -337,6 +337,16 @@ fn parse_item(
         .build();
 
     let mut rss_item_builder = ItemBuilder::default();
+
+    if let Some(title_max_len) = config.heading_max_length {
+        let mut title_text_short: String =
+            title_text.chars().take(title_max_len as usize).collect();
+        if title_text_short < title_text {
+            title_text_short += "...";
+        };
+        title_text = title_text_short.replace("\n", "");
+    }
+
     rss_item_builder
         .title(title_text)
         .link(base_url.parse(link_url).ok().map(|u| u.to_string()))
